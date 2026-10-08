@@ -60,39 +60,44 @@ void _exit(int status) {
   while (1);
 }
 
-int _open(const char *path, int flags, mode_t mode) {
-  _exit(SYS_open);
-  return 0;
-}
 
 int _write(int fd, void *buf, size_t count) {
-  _exit(SYS_write);
-  return 0;
+  return _syscall_(SYS_write, fd, (intptr_t)buf, count);
 }
 
+extern char _end;                              // 链接器给出的程序数据段末尾
+static intptr_t program_break = (intptr_t)&_end;
+
 void *_sbrk(intptr_t increment) {
+  intptr_t old = program_break;
+  if (_syscall_(SYS_brk, old + increment, 0, 0) == 0) {
+    program_break = old + increment;
+    return (void *)old;
+  }
   return (void *)-1;
 }
 
-int _read(int fd, void *buf, size_t count) {
-  _exit(SYS_read);
-  return 0;
+int _open(const char *path, int flags, mode_t mode) {
+  return _syscall_(SYS_open, (intptr_t)path, flags, mode);
 }
 
-int _close(int fd) {
-  _exit(SYS_close);
-  return 0;
+int _read(int fd, void *buf, size_t count) {
+  return _syscall_(SYS_read, fd, (intptr_t)buf, count);
 }
 
 off_t _lseek(int fd, off_t offset, int whence) {
-  _exit(SYS_lseek);
-  return 0;
+  return _syscall_(SYS_lseek, fd, offset, whence);
+}
+
+int _close(int fd) {
+  return _syscall_(SYS_close, fd, 0, 0);
 }
 
 int _gettimeofday(struct timeval *tv, struct timezone *tz) {
-  _exit(SYS_gettimeofday);
-  return 0;
+  return _syscall_(SYS_gettimeofday, (intptr_t)tv, (intptr_t)tz, 0);
 }
+
+
 
 int _execve(const char *fname, char * const argv[], char *const envp[]) {
   _exit(SYS_execve);

@@ -3,17 +3,37 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <assert.h>
+#include <sys/time.h>
 
 static int evtdev = -1;
 static int fbdev = -1;
 static int screen_w = 0, screen_h = 0;
+static int canvas_w = 0, canvas_h = 0, canvas_x = 0, canvas_y = 0;
 
 uint32_t NDL_GetTicks() {
-  return 0;
+  static uint64_t start_ms;
+  static int started;
+  struct timeval tv;
+
+  assert(gettimeofday(&tv, NULL) == 0);
+  uint64_t now_ms = (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+
+  if (!started) {
+    start_ms = now_ms;
+    started = 1;
+  }
+  return (uint32_t)(now_ms - start_ms);
 }
 
 int NDL_PollEvent(char *buf, int len) {
-  return 0;
+  static int fd = -1;
+  if (fd < 0) fd = open("/dev/events", 0);
+  int n = read(fd, buf, len - 1);
+  if (n <= 0) return 0;
+  buf[n] = '\0';
+  return 1;
 }
 
 void NDL_OpenCanvas(int *w, int *h) {
@@ -33,10 +53,40 @@ void NDL_OpenCanvas(int *w, int *h) {
       if (strcmp(buf, "mmap ok") == 0) break;
     }
     close(fbctl);
+  return;                                   // 新增：NWM 模式到此为止
   }
+
+  // 读取屏幕大小
+  char buf[64];
+  int fd = open("/proc/dispinfo", 0);
+  int n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  buf[n > 0 ? n : 0] = '\0';
+  // 格式里的空格可以匹配 0 个或多个空白，
+  // 所以 "WIDTH:400" 和 "WIDTH : 400" 都能解析
+  sscanf(buf, " WIDTH : %d HEIGHT : %d", &screen_w, &screen_h);
+
+  // 画布大小为 0 表示全屏；超过屏幕则裁剪
+  if (*w == 0 && *h == 0) { *w = screen_w; *h = screen_h; }
+  if (*w > screen_w) *w = screen_w;
+  if (*h > screen_h) *h = screen_h;
+  canvas_w = *w; canvas_h = *h;
+
+  // 画布居中
+  canvas_x = (screen_w - canvas_w) / 2;
+  canvas_y = (screen_h - canvas_h) / 2;
+
+  if (fbdev < 0) fbdev = open("/dev/fb", 0);
 }
 
 void NDL_DrawRect(uint32_t *pixels, int x, int y, int w, int h) {
+  if (fbdev < 0) fbdev = open("/dev/fb", 0);
+  // 逐行写：先用 lseek 定位到这一行在屏幕上的起点，再写 w 个像素
+  for (int i = 0; i < h; i++) {
+    int off = ((canvas_y + y + i) * screen_w + (canvas_x + x)) * 4;
+    lseek(fbdev, off, SEEK_SET);
+    write(fbdev, pixels + i * w, w * 4);
+  }
 }
 
 void NDL_OpenAudio(int freq, int channels, int samples) {

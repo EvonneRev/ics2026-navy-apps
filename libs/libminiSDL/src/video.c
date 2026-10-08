@@ -3,16 +3,73 @@
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 void SDL_BlitSurface(SDL_Surface *src, SDL_Rect *srcrect, SDL_Surface *dst, SDL_Rect *dstrect) {
   assert(dst && src);
   assert(dst->format->BitsPerPixel == src->format->BitsPerPixel);
+  int bpp = src->format->BytesPerPixel;
+
+  int sx = 0, sy = 0, w = src->w, h = src->h;
+  if (srcrect) { sx = srcrect->x; sy = srcrect->y; w = srcrect->w; h = srcrect->h; }
+  int dx = 0, dy = 0;
+  if (dstrect) { dx = dstrect->x; dy = dstrect->y; }
+
+  // 裁剪到目标表面范围内
+  if (dx + w > dst->w) w = dst->w - dx;
+  if (dy + h > dst->h) h = dst->h - dy;
+  if (w <= 0 || h <= 0) return;
+
+  for (int i = 0; i < h; i++)
+    memcpy((uint8_t *)dst->pixels + ((dy + i) * dst->w + dx) * bpp,
+           (uint8_t *)src->pixels + ((sy + i) * src->w + sx) * bpp,
+           w * bpp);
 }
 
 void SDL_FillRect(SDL_Surface *dst, SDL_Rect *dstrect, uint32_t color) {
+   int x = 0, y = 0, w = dst->w, h = dst->h;
+  if (dstrect) { x = dstrect->x; y = dstrect->y; w = dstrect->w; h = dstrect->h; }
+
+  for (int i = 0; i < h; i++)
+    for (int j = 0; j < w; j++) {
+      int idx = (y + i) * dst->w + (x + j);
+      if (dst->format->BitsPerPixel == 32) ((uint32_t *)dst->pixels)[idx] = color;
+      else ((uint8_t *)dst->pixels)[idx] = color;   // 8 位时 color 是调色板下标
+    }
 }
 
 void SDL_UpdateRect(SDL_Surface *s, int x, int y, int w, int h) {
+  // w、h 都为 0 表示刷新整个表面
+   
+  if (w == 0 && h == 0) { x = 0; y = 0; w = s->w; h = s->h; }
+  
+
+  uint32_t *buf = malloc(w * h * sizeof(uint32_t));
+  assert(buf);
+ 
+
+  if (s->format->BitsPerPixel == 32) {
+   
+    uint32_t *p = (uint32_t *)s->pixels;
+    for (int i = 0; i < h; i++)
+      memcpy(buf + i * w, p + (y + i) * s->w + x, w * 4);
+     
+  } else {  // 8 位：查调色板
+   
+    SDL_Color *pal = s->format->palette->colors;
+    uint8_t *p = (uint8_t *)s->pixels;
+    for (int i = 0; i < h; i++)
+      for (int j = 0; j < w; j++) {
+        SDL_Color c = pal[p[(y + i) * s->w + (x + j)]];
+        buf[i * w + j] = (c.r << 16) | (c.g << 8) | c.b;
+      }
+  }
+ 
+    NDL_DrawRect(buf, x, y, w, h);
+    
+    free(buf);
+
+
 }
 
 // APIs below are already implemented.
